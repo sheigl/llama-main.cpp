@@ -49,12 +49,16 @@ jobs:
         run: |
           set -euo pipefail
 
+          # git merge commits need an identity on the runner
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           merge_ref() {
             local ref="$1"
             echo "::group::Merging $ref"
             if ! git merge --no-edit "$ref"; then
               echo "::error::merge conflict while merging $ref"
-              git merge --abort
+              git merge --abort 2>/dev/null || true
               echo "::endgroup::"
               exit 1
             fi
