@@ -1,0 +1,100 @@
+name: Sync fork with upstream (master + SYCL PRs)
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Optional upstream PR number to also merge (e.g. 26689). Leave empty to merge only upstream master + SYCL PRs.'
+        type: string
+        required: false
+        default: ''
+      include_sycl:
+        description: 'Merge all open SYCL-labeled PRs from ggml-org/llama.cpp'
+        type: boolean
+        required: false
+        default: true
+
+concurrency:
+  group: sync-main-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Add upstream remote and fetch
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/ggml-org/llama.cpp.git
+          git fetch upstream master
+          git fetch upstream '+refs/pull/*/head:refs/remotes/upstream/pr/*'
+
+      - name: Merge upstream master, SYCL PRs, and requested PR
+        env:
+          INCLUDE_SYCL: ${{ inputs.include_sycl }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          merge_ref() {
+            local ref="$1"
+            echo "::group::Merging $ref"
+            if ! git merge --no-edit "$ref"; then
+              echo "::error::merge conflict while merging $ref"
+              git merge --abort
+              echo "::endgroup::"
+              exit 1
+            fi
+            echo "::endgroup::"
+          }
+
+          # (a) Merge upstream master
+          merge_ref upstream/master
+
+          # (b) Merge all open SYCL-labeled PRs
+          if [[ "$INCLUDE_SYCL" == "true" ]]; then
+            prs=$(gh pr list --repo ggml-org/llama.cpp --label SYCL --state open --json number --jq '.[].number')
+            if [[ -z "$prs" ]]; then
+              echo "no SYCL PRs to merge"
+            else
+              for n in $prs; do
+                merge_ref "upstream/pr/$n"
+              done
+            fi
+          else
+            echo "include_sycl=false: skipping SYCL PR merges"
+          fi
+
+          # (c) Merge an explicitly requested PR (if any)
+          if [[ -n "$PR_NUMBER" ]]; then
+            pr="$PR_NUMBER"
+            echo "::group::Fetching upstream pull/$pr/head"
+            if ! git fetch upstream "pull/$pr/head"; then
+              echo "::error::PR #$pr not found in upstream ggml-org/llama.cpp"
+              echo "::endgroup::"
+              exit 1
+            fi
+            echo "::endgroup::"
+            merge_ref FETCH_HEAD
+          fi
+
+      - name: Push to fork master
+        run: |
+          set -euo pipefail
+          git fetch origin master
+          if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/master)" ]]; then
+            git push origin master
+          else
+            echo "no changes to push"
+          fi
