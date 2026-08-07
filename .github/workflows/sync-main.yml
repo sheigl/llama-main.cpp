@@ -1,20 +1,25 @@
 name: Sync fork with upstream (master + SYCL PRs)
 
+# Sync model:
+# - Default (scheduled run or dispatch with no inputs): merge upstream ggml-org/llama.cpp master only.
+# - Dispatch with a PR number: merge upstream master + that specific PR.
+# - include_sycl=true (opt-in): additionally merge all open SYCL-labeled PRs.
+
 on:
   schedule:
     - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
       pr_number:
-        description: 'Optional upstream PR number to also merge (e.g. 26689). Leave empty to merge only upstream master + SYCL PRs.'
+        description: 'PR number from ggml-org/llama.cpp to also merge (e.g. 26689). Leave empty to merge only upstream master.'
         type: string
         required: false
         default: ''
       include_sycl:
-        description: 'Merge all open SYCL-labeled PRs from ggml-org/llama.cpp'
+        description: 'Also merge all open SYCL-labeled PRs from ggml-org/llama.cpp (opt-in; off by default)'
         type: boolean
         required: false
-        default: true
+        default: false
 
 concurrency:
   group: sync-main-${{ github.ref }}
