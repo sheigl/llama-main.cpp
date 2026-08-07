@@ -23,6 +23,7 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
     env:
@@ -49,6 +50,12 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Fail fast on an invalid pr_number input before doing any merges
+          if [[ -n "$PR_NUMBER" && ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "::error::pr_number must be a positive integer, got '$PR_NUMBER'"
+            exit 1
+          fi
+
           # git merge commits need an identity on the runner
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -57,7 +64,7 @@ jobs:
             local ref="$1"
             echo "::group::Merging $ref"
             if ! git merge --no-edit "$ref"; then
-              echo "::error::merge conflict while merging $ref"
+              echo "::error::failed to merge $ref (conflict or error)"
               git merge --abort 2>/dev/null || true
               echo "::endgroup::"
               exit 1
